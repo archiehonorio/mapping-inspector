@@ -1,0 +1,1425 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MDR Trace — translation mapping inspector</title>
+<style>
+:root{
+  --bg:#0f1113; --panel:#15181b; --panel-2:#1b1f23; --line:#272c31;
+  --ink:#d7dbe0; --ink-dim:#8a9099; --ink-faint:#5a616a;
+  --keyword:#7fa6d6; --string:#8fc99a; --num:#d6a86f; --comment:#5a616a; --warn:#e08a82;
+  --sel:#1d2733; --sel-bar:#6fa8d6; --hi:#1d2228;
+  --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+  --ui:"Inter",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+  --r:8px;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--ui);font-size:14px;-webkit-font-smoothing:antialiased}
+button{font-family:inherit;color:inherit;cursor:pointer}
+::selection{background:#2a3a4d}
+
+.app{display:grid;grid-template-rows:auto 1fr;height:100vh}
+header{display:flex;align-items:center;gap:16px;padding:12px 20px;background:var(--panel);border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:baseline;gap:8px;flex:none}
+.brand b{font-weight:650;font-size:15px;letter-spacing:-.1px}
+.brand small{color:var(--ink-faint);font-size:11.5px}
+.legend{display:flex;gap:6px;align-items:center;flex-wrap:wrap;overflow:hidden;max-height:24px}
+.lchip{font-family:var(--mono);font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;white-space:nowrap;border:1px solid transparent}
+.larrow{color:var(--ink-faint);font-size:11px}
+.search{margin-left:auto;position:relative;flex:none}
+.search input{width:240px;max-width:32vw;background:var(--panel-2);border:1px solid var(--line);border-radius:var(--r);color:var(--ink);padding:8px 11px 8px 30px;font-size:13px;font-family:var(--mono)}
+.search input:focus{outline:none;border-color:#3a4a5e}
+.search svg{position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--ink-faint)}
+.addbtn{background:var(--panel-2);color:var(--ink);border:1px solid var(--line);border-radius:var(--r);padding:8px 15px;font-size:13px;font-weight:500;flex:none}
+.addbtn:hover{border-color:#3a4148;background:#21262b}
+
+.main{display:grid;grid-template-columns:250px minmax(0,1fr) 360px;min-height:0}
+@media(max-width:980px){.main{grid-template-columns:1fr}.sidebar,.inspector{display:none}}
+
+.sidebar{border-right:1px solid var(--line);background:var(--panel);min-height:0;display:flex;flex-direction:column}
+.tabs{display:flex;border-bottom:1px solid var(--line)}
+.tabs button{flex:1;background:none;border:none;padding:11px 4px;font-size:12px;color:var(--ink-faint);border-bottom:2px solid transparent}
+.tabs button.on{color:var(--ink);border-bottom-color:var(--ink)}
+.tab-body{overflow:auto;flex:1;padding:10px}
+.pipe-head{display:flex;align-items:center;justify-content:space-between;padding:2px 4px 10px}
+.pipe-head span{font-size:11px;color:var(--ink-faint);text-transform:uppercase;letter-spacing:.7px;font-weight:600}
+.pipe-head button{background:none;border:none;color:var(--warn);font-size:12px;padding:2px 4px}
+.pipe-head button:hover{text-decoration:underline}
+
+.stage-item{position:relative;width:100%;background:var(--panel-2);border:1px solid var(--line);border-left:3px solid;border-radius:var(--r);padding:11px 12px;margin-bottom:8px;cursor:pointer}
+.stage-item:hover{background:#21262b}
+.stage-item.on{box-shadow:0 0 0 1px var(--line)}
+.stage-item .top{display:flex;align-items:center;gap:8px}
+.stage-item .label{font-weight:600;font-size:13px}
+.stage-item .ord{font-family:var(--mono);font-size:10px;color:var(--ink-faint);margin-left:auto}
+.stage-item .meta{color:var(--ink-faint);font-size:11px;margin-top:6px;font-family:var(--mono)}
+.stage-acts{display:flex;gap:3px;margin-top:9px}
+.stage-acts button{font-size:11px;background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:3px 8px;color:var(--ink-dim);line-height:1}
+.stage-acts button:hover:not([disabled]){border-color:#3a4148;color:var(--ink)}
+.stage-acts button[disabled]{opacity:.35}
+.add-row{width:100%;border:1px dashed #3a4148;background:none;border-radius:var(--r);padding:11px;color:var(--ink-dim);font-size:12.5px;margin-top:2px}
+.add-row:hover{border-color:#4a525a;color:var(--ink)}
+
+.list-row{display:flex;gap:8px;align-items:center;width:100%;text-align:left;background:none;border:none;border-radius:6px;padding:7px 8px;color:var(--ink-dim);font-size:12px}
+.list-row:hover{background:var(--hi);color:var(--ink)}
+.tag{font-family:var(--mono);font-size:10px;font-weight:600;padding:2px 7px;border-radius:20px;flex:none;white-space:nowrap}
+.tag.err{color:var(--warn);background:rgba(224,138,130,.13)}
+.list-row .grow{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.list-row .grow.mono{font-family:var(--mono);font-size:11.5px}
+.gl-item{padding:10px 8px;border-bottom:1px solid var(--line)}
+.gl-item code{font-family:var(--mono);color:var(--keyword);font-size:11.5px}
+.gl-item p{margin:4px 0 0;color:var(--ink-dim);font-size:12px;line-height:1.5}
+.hint{padding:9px 8px;color:var(--ink-faint);font-size:11.5px;line-height:1.5}
+
+.code-wrap{min-width:0;min-height:0;background:var(--panel);overflow:hidden}
+.panes{display:flex;height:100%;min-height:0}
+.pane{flex:1;min-width:0;display:flex;flex-direction:column;min-height:0}
+.pane+.pane{border-left:1px solid var(--line)}
+.code-head{display:flex;align-items:center;gap:9px;padding:10px 16px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:12px;color:var(--ink-dim)}
+.code-head .dot{width:8px;height:8px;border-radius:50%}
+.code-head .pane-close{margin-left:auto;background:none;border:none;color:var(--ink-faint);font-size:17px;line-height:1;padding:0 2px}
+.code-head .pane-close:hover{color:var(--ink)}
+.code-scroll{overflow:auto;flex:1;padding:8px 0 45vh}
+.code{font-family:var(--mono);font-size:12.5px;line-height:1.7;white-space:pre;tab-size:4}
+.ln{display:flex}
+.ln:hover{background:#181c20}
+.ln.has-field{cursor:pointer}
+.ln.sel{background:var(--sel);box-shadow:inset 3px 0 0 var(--sel-bar)}
+.ln.sel .gut{color:#cfe0f0;font-weight:700;background:var(--sel)}
+@keyframes nav{0%{background:#27384a}100%{background:var(--sel)}}
+.ln.sel.nav{animation:nav .8s ease}
+.ln .gut{flex:none;width:50px;text-align:right;padding-right:14px;color:var(--ink-faint);user-select:none;font-size:11px;position:sticky;left:0;background:var(--panel)}
+.ln:hover .gut{background:#181c20}
+.ln .src{flex:1;padding-right:24px}
+.ln.err-line{background:rgba(224,138,130,.06)}
+.ln.err-line .gut{color:var(--warn);background:rgba(224,138,130,.06)}
+.tok-k{color:var(--keyword)} .tok-s{color:var(--string)} .tok-n{color:var(--num)}
+.tok-c{color:var(--comment);font-style:italic}
+.tok-field{color:var(--ink);border-bottom:1px dotted #4a545f}
+
+.empty{display:flex;align-items:center;justify-content:center;height:100%;padding:24px}
+.empty .card{max-width:430px;text-align:center}
+.empty h2{margin:0 0 8px;font-size:19px;font-weight:600}
+.empty p{margin:0 0 20px;color:var(--ink-dim);font-size:13.5px;line-height:1.6}
+.empty .btns{display:flex;gap:10px;justify-content:center}
+.empty .btns button{padding:11px 18px;border-radius:var(--r);font-size:13.5px}
+.empty .btns .primary{background:#2a3645;color:#dfeaf5;border:1px solid #36465a;font-weight:500}
+.empty .btns .ghost{background:var(--panel-2);border:1px solid var(--line);color:var(--ink)}
+.empty .steps{margin-top:24px;text-align:left;color:var(--ink-faint);font-size:12.5px;line-height:1.8}
+.empty .steps b{color:var(--ink-dim)}
+
+.inspector{border-left:1px solid var(--line);background:var(--panel);min-height:0;overflow:auto;padding:16px}
+.insp-empty{color:var(--ink-dim);font-size:12.5px;line-height:1.65;padding:6px 2px}
+.insp-empty b{color:var(--ink)}
+.eyebrow{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--ink-faint);margin:20px 0 10px;font-weight:600}
+.eyebrow:first-child{margin-top:2px}
+.eyebrow .sub{text-transform:none;letter-spacing:0;font-weight:400;color:var(--ink-faint);float:right}
+
+.rail{position:relative;display:grid;gap:4px;margin:6px 0;padding-top:4px}
+.rail .track{position:absolute;top:23px;left:8%;right:8%;height:1px;background:var(--line);z-index:0}
+.station{display:flex;flex-direction:column;align-items:center;gap:7px;position:relative;z-index:1;min-width:0}
+.station .node{width:36px;height:36px;border-radius:50%;border:1.5px solid var(--line);background:var(--panel-2);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-weight:600;font-size:10.5px;color:var(--ink-faint);transition:.16s;max-width:100%;overflow:hidden;padding:0 3px}
+.station.active .node{font-weight:700}
+.station .ops{display:flex;gap:3px;min-height:13px}
+.station .op{font-family:var(--mono);font-size:9px;font-weight:700;padding:1px 5px;border-radius:4px;color:var(--ink-faint);background:var(--panel-2)}
+.station.active .op.w{color:var(--bg);background:var(--ink)}
+.station.active .op.r{color:var(--ink-dim);background:var(--hi);border:1px solid var(--line)}
+.station .annot{font-family:var(--mono);font-size:9.5px;text-align:center;color:var(--ink-faint);line-height:1.3;max-width:100%;overflow:hidden}
+.station .annot b{display:block;color:var(--ink-dim);font-weight:600}
+
+.field-name{font-family:var(--mono);font-size:13px;color:var(--ink);background:var(--panel-2);border:1px solid var(--line);border-radius:7px;padding:9px 11px;word-break:break-all;line-height:1.5}
+.field-name .arr{color:var(--ink-faint)}
+.read{color:var(--ink-dim);font-size:12.5px;line-height:1.65;margin-top:11px}
+.read b{color:var(--ink);font-weight:600}
+.occ-row{display:flex;align-items:stretch;gap:4px;margin-bottom:1px}
+.occ{display:flex;gap:8px;align-items:center;flex:1;min-width:0;text-align:left;background:none;border:none;padding:7px;border-radius:6px;color:var(--ink-dim);font-size:12px}
+.occ:hover{background:var(--hi);color:var(--ink)}
+.occ .op-badge{font-family:var(--mono);font-size:9.5px;font-weight:700;padding:2px 6px;border-radius:4px;flex:none}
+.occ .op-badge.w{color:var(--bg);background:var(--ink)}
+.occ .op-badge.r{color:var(--ink-dim);background:var(--panel-2);border:1px solid var(--line)}
+.occ .ln-ref{font-family:var(--mono);font-size:11px;color:var(--ink-faint);flex:none}
+.occ .desc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.occ-split{flex:none;width:30px;border:1px solid var(--line);background:var(--panel-2);border-radius:6px;color:var(--ink-faint);font-size:13px}
+.occ-split:hover{color:var(--ink);border-color:#3a4148;background:#21262b}
+.helper{border-left:2px solid var(--line);padding:6px 0 6px 12px;margin:8px 0}
+.helper code{font-family:var(--mono);color:var(--keyword);font-size:12px}
+.helper p{margin:3px 0 0;color:var(--ink-dim);font-size:12px;line-height:1.5}
+.err-card{background:rgba(224,138,130,.07);border:1px solid rgba(224,138,130,.22);border-radius:7px;padding:11px 12px;margin-bottom:8px}
+.err-card .ec{font-family:var(--mono);color:var(--warn);font-weight:700;font-size:12.5px}
+.err-card p{margin:6px 0 0;font-size:12.5px;line-height:1.5;color:var(--ink-dim)}
+.err-card .cond{margin-top:7px;font-family:var(--mono);font-size:11px;color:var(--ink);background:var(--panel);border:1px solid rgba(224,138,130,.22);padding:6px 8px;border-radius:6px;word-break:break-word}
+.note{color:var(--ink-faint);font-size:11px;line-height:1.5;margin-top:16px;border-top:1px solid var(--line);padding-top:11px}
+
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;align-items:center;justify-content:center;z-index:30;padding:20px}
+.modal-bg.on{display:flex}
+.modal{background:var(--panel);border:1px solid var(--line);border-radius:12px;width:620px;max-width:96vw;padding:22px;display:flex;flex-direction:column;max-height:90vh}
+.modal h3{margin:0 0 4px;font-weight:600}
+.modal p{margin:0 0 14px;color:var(--ink-dim);font-size:12.5px;line-height:1.5}
+.modal label{display:block;font-size:11px;color:var(--ink-faint);margin:8px 0 5px;text-transform:uppercase;letter-spacing:.7px;font-weight:600}
+.name-chips{display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap}
+.name-chips button{font-family:var(--mono);font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:20px;background:var(--panel-2);border:1px solid var(--line);color:var(--ink-dim)}
+.name-chips button:hover{color:var(--ink);border-color:#3a4148;background:#21262b}
+.modal input[type=text]{width:100%;background:var(--panel-2);border:1px solid var(--line);border-radius:7px;color:var(--ink);padding:9px 11px;font-size:13px;font-family:var(--mono)}
+.modal input:focus,.modal textarea:focus{outline:none;border-color:#3a4a5e}
+.modal textarea{width:100%;flex:1;min-height:240px;background:var(--panel-2);border:1px solid var(--line);border-radius:7px;color:var(--ink);padding:11px;font-size:12px;font-family:var(--mono);line-height:1.55;resize:vertical;white-space:pre;tab-size:4}
+.modal textarea::placeholder{color:var(--ink-faint)}
+.modal .row{display:flex;gap:10px;justify-content:flex-end;margin-top:16px;flex:none;align-items:center}
+.modal .row .left{margin-right:auto;color:var(--ink-faint);font-size:11.5px}
+.modal .row button{padding:9px 16px;border-radius:7px;border:1px solid var(--line);background:var(--panel-2);font-size:13px}
+.modal .row button.primary{background:#2a3645;color:#dfeaf5;border-color:#36465a;font-weight:500}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand"><b>MDR Trace</b><small>translation mapping inspector</small></div>
+    <div class="legend" id="legend"></div>
+    <div class="search">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m20 20-3-3"/></svg>
+      <input id="search" placeholder="field path or error code…" autocomplete="off">
+    </div>
+    <button class="addbtn" id="addBtn">+ Add stage</button>
+  </header>
+
+  <div class="main">
+    <aside class="sidebar">
+      <div class="tabs">
+        <button data-tab="pipeline" class="on">Pipeline</button>
+        <button data-tab="errors">Errors</button>
+        <button data-tab="fields">Fields</button>
+        <button data-tab="glossary">Glossary</button>
+      </div>
+      <div class="tab-body" id="tabBody"></div>
+    </aside>
+
+    <section class="code-wrap" id="codeWrap"></section>
+
+    <aside class="inspector" id="inspector"><div class="insp-empty" id="inspEmpty"></div></aside>
+  </div>
+</div>
+
+<div class="modal-bg" id="modalBg">
+  <div class="modal">
+    <h3 id="modalTitle">Add a stage</h3>
+    <p>Name it, then paste the translation code. Add two or more stages and any shared field maps across them.</p>
+    <label>Stage name</label>
+    <div class="name-chips" id="nameChips">
+      <button data-n="SX">SX</button><button data-n="CT">CT</button><button data-n="XR">XR</button>
+      <button data-n="SINTEG">SINTEG</button><button data-n="RINTEG">RINTEG</button>
+    </div>
+    <input type="text" id="stageLabel" placeholder="or type your own">
+    <label>Paste translation code</label>
+    <textarea id="stageCode" placeholder="Paste your .cpp here…" spellcheck="false"></textarea>
+    <div class="row">
+      <span class="left" id="modalLeft"></span>
+      <button id="modalCancel">Cancel</button>
+      <button class="primary" id="modalSave">Save stage</button>
+    </div>
+  </div>
+</div>
+
+<script type="text/plain" id="ex-SX">
+#include "Translation.h"
+using namespace b2be::utils;
+ 
+//Constructor
+Translation::Translation(YB_MySQL* m,string inputFile,string qID,string qStageID,string action,B2BEAddressingHeader* hdr,string programName)
+{ 
+    b2beHdr = hdr;
+    mySQL = m;
+    inputFilename = inputFile;
+    queueID = qID;
+    queueStageID = qStageID;
+    actionType = action;
+    flatFile = NULL;
+    translationName = programName;
+}
+ 
+//Destructor
+Translation::~Translation()
+{ 
+    delete flatFile;
+}
+ 
+ 
+int Translation::translate()
+{
+    try
+    {
+        //create the appropriate data storage class
+        //load the input data
+        POResponse* docs = new POResponse();
+ 
+        map_TransmissionDate(docs);
+ 
+        docs->header->transmissionTime->hours = DateTimeB::NowString("%H","Australia/Melbourne");
+        docs->header->transmissionTime->minutes = DateTimeB::NowString("%M","Australia/Melbourne");
+        docs->header->transmissionTime->seconds = DateTimeB::NowString("%S","Australia/Melbourne");
+        
+        //process the file, map data etc.
+ 
+        flatFile = new YB_FlatFile(inputFilename, YB_FlatFile::YB_FlatFile_Read_Mode);
+        if(flatFile->isError())
+        {
+            raiseInternalError("01", "Unable to load flat file.");
+            delete docs;
+            return EXIT_FAILURE;
+        }
+        
+        //DO THE MAPPING
+        if(!mapFile(docs))
+        {
+            delete docs;
+            return EXIT_FAILURE;
+        }
+ 
+        //if successful then create the output file    
+        string header = b2beHdr->getB2BEAddressingHeader();
+        xmlData->writeXML((B2BEDocument*)docs,getOutputFileName(), header);
+ 
+        //delete the storage class structure
+        delete docs;
+    }
+    catch(...)
+    {
+        raiseInternalError("02","Undefined exception in translate() function");
+        return EXIT_FAILURE;
+    }
+    
+    //any errors and files should have been cleaned up so we exit successfully 
+    return EXIT_SUCCESS;
+}
+ 
+bool Translation::mapFile(POResponse *docs)
+{
+    string jsonContent = "";
+    for (int i = 1; i < flatFile->getNumberOfLines(); i++)
+    {
+        jsonContent.append(flatFile->getLineAt(i).append("\n"));
+    }
+    
+    Json::Value rootNode; // get JSON value
+    Json::Reader reader; // read JSON input
+ 
+    Party * partyVN = docs->header->partyDetails->addParty(Party::PartyQualifier_VN);
+    Party * partyDP = docs->header->partyDetails->addParty(Party::PartyQualifier_DP);
+ 
+    ReferenceDetail * refBY = NULL;
+    refBY = docs->header->referenceDetails->addReferenceDetail(ReferenceDetail::ReferenceQualifier_BY);
+ 
+    
+    ReferenceDetail * refDT = NULL;
+    refDT = docs->header->referenceDetails->addReferenceDetail(ReferenceDetail::ReferenceQualifier_DT);
+    
+    if (reader.parse(jsonContent, rootNode))
+    {
+        Json::Value::Members rootMemberName = rootNode.getMemberNames();
+        for (int a = 0; a < rootMemberName.size(); a++)
+        {
+            string rootMemberItemNode = rootMemberName[a];
+            if (String::ToUpper(rootMemberItemNode) == "F001")
+            {
+                Json::Value::Members f001MemberName = rootNode[rootMemberItemNode].getMemberNames();
+                Json::Value f001Node = rootNode[rootMemberItemNode];
+                for (int b = 0; b < f001MemberName.size(); b++)
+                {
+                    string f001ItemNode = f001MemberName[b];
+                    if (String::ToUpper(f001ItemNode) == "HEADER")
+                    {
+                        Json::Value::Members headerMemberName = f001Node[f001ItemNode].getMemberNames();
+                        Json::Value headerNode = f001Node[f001ItemNode];
+                        for (int c = 0; c < headerMemberName.size(); c++)
+                        {
+                            string headerItemNode = headerMemberName[c];
+                             if (String::ToUpper(headerItemNode) == "POANUMBER")
+                            {
+                                string value = headerNode[headerItemNode].asString();   
+                                docs->header->purchaseOrderDetail->id = value;
+                                docs->header->orderResponseDetail->purposeCode  = value;
+                            }
+                            else if (String::ToUpper(headerItemNode) == "PURCHASEORDERDATE")
+                            {
+                                string value = headerNode[headerItemNode].asString();    
+                                docs->header->orderResponseDetail->date->year = String::TakeField(value, 1, "-"); 
+                                docs->header->orderResponseDetail->date->month = String::TakeField(value, 2, "-"); 
+                                docs->header->orderResponseDetail->date->day = String::TakeField(value, 3, "-"); 
+                            }
+                            else if (String::ToUpper(headerItemNode) == "DELIVERYDATE")
+                            {
+                                string value = headerNode[headerItemNode].asString();
+                                DeliveryDate * onDate = docs->header->purchaseOrderDetail->addDeliveryDate(DeliveryDate::DeliveryDateQualifier_OnDate);                        
+                                string year = String::TakeField(value, 1, "-");
+                                string month = String::TakeField(value, 2, "-");
+                                string day = String::TakeField(value, 3, "-");
+                                onDate->date->day = day;
+                                onDate->date->month = month;
+                                onDate->date->year = year;
+                                docs->header->purchaseOrderDetail->date->day = day;  
+                                docs->header->purchaseOrderDetail->date->month = month;
+                                docs->header->purchaseOrderDetail->date->year =year;    
+                            }
+                            else if (String::ToUpper(headerItemNode) == "PURCHASEORDERNUMBER")
+                            {
+                                string value = headerNode[headerItemNode].asString();
+                                refBY -> number = value;
+                            }
+                            else if (String::ToUpper(headerItemNode) == "DELIVERYTERMS")
+                            {
+                                string value = headerNode[headerItemNode].asString();
+                                refDT -> number = value;
+                            }
+                            else if (String::ToUpper(headerItemNode) == "PARTYSTCOMPANYNAME")
+                            {
+                                partyDP->company->name = headerNode[headerItemNode].asString();
+                            }
+                            else if (String::ToUpper(headerItemNode) == "PARTYSTCOMPANYPOSTCODE")
+                            {
+                                partyDP->company->locationCode = headerNode[headerItemNode].asString();
+                            }
+                            else if (String::ToUpper(headerItemNode) == "PARTYVNCOMPANYNAME")
+                            {
+                                partyVN->company->name = headerNode[headerItemNode].asString();
+                            }
+                            else if (String::ToUpper(headerItemNode) == "PARTYVNABN")
+                            {
+                                partyVN->company->gln = headerNode[headerItemNode].asString();
+                            }
+                            else if (String::ToUpper(headerItemNode) == "VENDORORDERNUMBER")
+                            {
+                                partyVN->codeQual  = headerNode[headerItemNode].asString();
+                            }
+                        }
+                    }
+                    else if (String::ToUpper(f001ItemNode) == "METADATA")
+                    {
+                        Json::Value::Members metadataMemberName = f001Node[f001ItemNode].getMemberNames();
+                        Json::Value metadataNode = f001Node[f001ItemNode];
+                        for (int c = 0; c < metadataMemberName.size(); c++)
+                        {
+                            string metadataItemNode = metadataMemberName[c];
+                            if (String::ToUpper(metadataItemNode) == "UUID")
+                            {
+                                docs->system->uniqueID  = metadataNode[metadataItemNode].asString();
+                                docs->system->setSourceStandard("OCR");
+                            }
+                            else if (String::ToUpper(metadataItemNode) == "ORIGINALFILENAME")
+                            {
+                                string hardcopyInternalID  = String::TakeField(metadataNode[metadataItemNode].asString(),2,"_");
+                                hardcopyInternalID  = String::TakeField(hardcopyInternalID,1,".pdf");
+                                partyVN->code = hardcopyInternalID;
+                            }
+                        }
+                    }
+                    else if (String::ToUpper(f001ItemNode) == "ITEM")
+                    {
+                        int lineNumber = 1;
+                        int ean = 1;
+                        Json::Value itemObjectNode = f001Node[f001ItemNode]; 
+                        for (int c = 0; c < itemObjectNode.size(); c++)
+                        {
+                            Json::Value::Members itemMemberName = itemObjectNode[c].getMemberNames();
+                            Json::Value itemNode = itemObjectNode[c];
+                            PurchaseOrderItem *item = docs->itemDetails->addItem();
+                            for (int d = 0; d < itemMemberName.size(); d++)
+                            {
+                                string itemItemNode = itemMemberName[d];
+                                if (String::ToUpper(itemItemNode) == "ITEMEAN")
+                                {
+                                    string value = itemNode[itemItemNode].asString();
+                                    item->referenceCodes->ean = value;
+                                }
+                                else if (String::ToUpper(itemItemNode) == "ITEMSUPPLIERPARTNUMBER")
+                                {
+                                    string value = itemNode[itemItemNode].asString();
+                                    item->referenceCodes->supplierPartNumber = value;
+                                }
+                                else if (String::ToUpper(itemItemNode) == "ITEMORDEREDQUANTITY")
+                                {
+                                    string value = itemNode[itemItemNode].asString();
+                                    item->orderedQuantity->quantity = value;
+                                }
+                                else if (String::ToUpper(itemItemNode) == "ITEMDESCRIPTION")
+                                {
+                                    string value = itemNode[itemItemNode].asString();
+                                    item->addDescription(value);
+                                }
+                                else if (String::ToUpper(itemItemNode) == "ITEMPRICENETAMOUNT")
+                                {
+                                    string value = itemNode[itemItemNode].asString();
+                                    item->price->amount = value;
+                                }
+                                else if (String::ToUpper(itemItemNode) == "ITEMTOTALNETAMOUNT")
+                                {
+                                    string value = itemNode[itemItemNode].asString();
+                                    item->price->netAmount = value;
+                                }
+                            }
+                        }
+                    }
+                }
+            }            
+        }
+    }
+    else
+    {
+        raiseInternalError("03", "Unable to read JSON content. Error message: " + reader.getFormattedErrorMessages());
+        return false;
+    }
+    return true;
+}
+
+</script>
+<script type="text/plain" id="ex-CT">
+// Translation.cpp  (CT / enrichment stage)
+#include "Translation.h"
+using namespace b2be::utils;
+ 
+Translation::Translation(
+        YB_MySQL* m, string inputFile, string qID, string qStageID,
+        string action, B2BEAddressingHeader* hdr, string programName)
+{
+    b2beHdr = hdr;
+    mySQL = m;
+    inputFilename = inputFile;
+    queueID = qID;
+    queueStageID = qStageID;
+    actionType = action;
+    translationName = programName;
+}
+ 
+Translation::~Translation()
+{
+}
+ 
+int Translation::translate()
+{
+    try
+    {
+        POResponse* docs = new POResponse();
+        xmlData->loadXML(inputFilename, docs, true);
+        if (xmlData->isError())
+        {
+            if (docs != NULL) delete docs;
+            raiseInternalError("01", xmlData->getErrorMessage());
+            return EXIT_FAILURE;
+        }
+ 
+        string hardcopyInternalID = "";
+        int idx = -1;
+        Party * partyVN = NULL;
+        idx = docs->header->partyDetails->getPartyByQualifierIndex(Party::PartyQualifier_VN);
+        if(idx > -1)
+        {
+            partyVN = docs->header->partyDetails->party[idx];
+            hardcopyInternalID = partyVN->code;
+        }
+ 
+        if(!findHardcopy(hardcopyInternalID))
+        {
+            delete docs;
+            return EXIT_FAILURE;
+        }
+ 
+        string *lookupDBSettings = YB_V2Util::getDBLookupSettings();
+        if(lookupDBSettings[0].length() <= 0 || lookupDBSettings[1].length() <= 0 || lookupDBSettings[3].length() <= 0)
+        {
+            raiseInternalError("02", "Lookup Error - DBLookupSettings, acquired from YB_V2Util::getDBLookupSettings(), incomplete");
+            delete [] lookupDBSettings;
+            delete docs;
+            return EXIT_FAILURE;
+        }
+ 
+        db = new YB_MySQL(lookupDBSettings[0], lookupDBSettings[1], lookupDBSettings[2], lookupDBSettings[3]);
+        if(db->isError())
+        {
+            raiseInternalError("03", "ERROR: Lookup Error - " + db->getErrorMessage());
+            delete [] lookupDBSettings;
+            delete docs;
+            return EXIT_FAILURE;
+        }
+        delete [] lookupDBSettings;
+ 
+        bool convertWeekInDeliveryDate = false;
+        bool mapDeliveryDateToLine = false;
+        bool calculateEarliestDate = false;
+        bool calculateLatestDate = false;
+        bool mapOrderDateToLine = false;
+        bool calculateNetPrice = false;
+        bool calculateDiscountedPrice = false;
+ 
+        idx = docs->header->partyDetails->getPartyByQualifierIndex(Party::PartyQualifier_VN);
+        string VNGLN = "";
+        string VNName = "";
+        if(idx > -1)
+        {
+            partyVN = docs->header->partyDetails->party[idx];
+            VNName = partyVN->company->name;
+            VNGLN = partyVN->company->gln;
+        }
+ 
+        if(docs->system->uniqueID.length() > 0)
+        {
+            if(!lookupCalculationLogic(VNName,VNGLN,convertWeekInDeliveryDate,mapDeliveryDateToLine,calculateEarliestDate,calculateLatestDate,mapOrderDateToLine,calculateNetPrice,calculateDiscountedPrice))
+            {
+                delete db;
+                delete docs;
+                return EXIT_FAILURE;
+            }
+        }
+ 
+        Party * partyDP = NULL;
+        idx = docs->header->partyDetails->getPartyByQualifierIndex(Party::PartyQualifier_DP);
+        string dpGLN = "";
+        string byGLN = "";
+        string storeName = "";
+        string zipCode = "";
+        if(idx > -1)
+        {
+            partyDP = docs->header->partyDetails->party[idx];
+            storeName = partyDP->company->name;
+            zipCode = partyDP->company->locationCode;
+        }
+ 
+        Party * partyBY = NULL;
+        idx = docs->header->partyDetails->getPartyByQualifierIndex(Party::PartyQualifier_BY);
+        if(idx > -1)
+            partyBY = docs->header->partyDetails->party[idx];
+        else
+            partyBY = docs->header->partyDetails->addParty(Party::PartyQualifier_BY);
+ 
+        string OnDateYear = "";
+        string OnDateMonth = "";
+        string OnDateDay = "";
+ 
+        // Hardcoding OrderResponseTime to 00:00:00
+        docs->header->orderResponseDetail->time->hours = "00";
+        docs->header->orderResponseDetail->time->minutes = "00";
+        docs->header->orderResponseDetail->time->seconds = "00";
+ 
+        for (int i = 0; i <= docs->itemDetails->itemNum; i++)
+        {
+            PurchaseOrderItem * item = NULL;
+            item = docs->itemDetails->item[i];
+ 
+            string priceDiscount = item->price->discount->amount;
+            item->price->discount->amount = String::Replace(priceDiscount, ",", ".");
+ 
+            // Hardcoding StatusCode to 5
+            item->referenceCodes->serialNumber = "5";
+            // Hardcoding PlannedDeliveryQuantityUOM
+            item->orderedQuantity->unit = "PCE";
+ 
+            string priceAmount = item->price->amount;
+            item->price->amount = String::Replace(priceAmount, ",", ".");
+ 
+            string netAmount = item->price->netAmount;
+            item->price->netAmount = String::Replace(netAmount, ",", ".");
+ 
+            if(calculateDiscountedPrice)
+            {
+                item->price->discount->percent = String::Replace(item->price->discount->percent, ",", ".");
+                item->price->netAmount = Number::FormatDouble(strtod(item->price->amount.c_str(),NULL)*(1-(strtod(item->price->discount->percent.c_str(),NULL)/100)), 4);
+            }
+ 
+            if(calculateNetPrice && strtod(item->orderedQuantity->quantity.c_str(),NULL) > 0)
+            {
+                item->price->netAmount = Number::FormatDouble(strtod(item->price->netAmount.c_str(),NULL)/strtod(item->orderedQuantity->quantity.c_str(),NULL), 4);
+            }
+ 
+            item->price->netAmount = Number::FormatDouble(strtod(item->price->netAmount.c_str(),NULL), 4);
+            item->price->amount = Number::FormatDouble(strtod(item->price->amount.c_str(),NULL), 2);
+        }
+ 
+        if(docs->header->orderResponseDetail->typeCode.length() == 0)
+            docs->header->orderResponseDetail->typeCode = "29";
+ 
+        if(!lookupDeliveryGLN(storeName, zipCode, byGLN, dpGLN))
+        {
+            delete db;
+            delete docs;
+            return EXIT_FAILURE;
+        }
+ 
+        if(partyDP != NULL)
+        {
+            partyDP->company->gln = dpGLN;
+            partyBY->company->gln = byGLN;
+        }
+ 
+        string totalGrossAmount = docs->trailer->totalGrossAmount;
+        docs->trailer->totalGrossAmount = String::Replace(totalGrossAmount, ",", ".");
+ 
+        string header = b2beHdr->getB2BEAddressingHeader();
+        xmlData->writeXML((B2BEDocument*)docs, getOutputFileName(), header);
+ 
+        delete db;
+        delete docs;
+    }
+    catch(...)
+    {
+        raiseInternalError("04","Undefined exeption in translate() function");
+        return EXIT_FAILURE;
+    }
+    return EXIT_SUCCESS;
+}
+ 
+bool Translation::lookupDeliveryGLN(string storeName, string zipCode, string &byGLN, string &dpGLN)
+{
+    string sql = "";
+    sql.append("SELECT GLNBuyer, GLNDelivery FROM NL11337FerneyGroupBuyerAddressOCR");
+    sql.append(" WHERE CompanyName = '" + YB_V2Util::databaseCleanString(storeName) + "'");
+    sql.append(" AND ZipCode = '" + YB_V2Util::databaseCleanString(zipCode) + "'");
+ 
+    SQLResult * db_res = new SQLResult(db->executeQuery(sql));
+    if(db->isError())
+    {
+        raiseInternalError("05", "Loading NL11337FerneyGroupBuyerAddressOCR Table Database Error: " + db->getErrorMessage());
+        delete db_res;
+        return false;
+    }
+    while(db_res->IsMoreRows())
+    {
+        db_res->NextRow();
+        byGLN = db_res->GetColumnValueString(0);
+        dpGLN = db_res->GetColumnValueString(1);
+        break;
+    }
+    delete db_res;
+    return true;
+}
+ 
+bool Translation::findHardcopy(string hardcopyInternalID)
+{
+    string sql = "";
+    sql.append("SELECT B2BEDocumentInternalID FROM B2BE_DOCUMENT");
+    sql.append(" WHERE ReceiverB2BEUserID = '" + YB_V2Util::databaseCleanString(b2beHdr->getSenderUserID()) + "'");
+    sql.append(" AND B2BEDocumentType = 'Hardcopy'");
+    sql.append(" AND B2BEDocumentInternalID = '" + YB_V2Util::databaseCleanString(hardcopyInternalID) + "'");
+    sql.append(" ORDER BY B2BE_DOCUMENT.B2BEDocumentInternalID DESC LIMIT 1");
+ 
+    SQLResult * dbResult = new SQLResult(mySQL->executeQuery(sql));
+    if (mySQL->isError())
+    {
+        raiseInternalError("06","Loading B2BE_DOCUMENT Table Database Error: " + mySQL->getErrorMessage());
+        delete dbResult;
+        return false;
+    }
+    while(dbResult->IsMoreRows())
+    {
+        dbResult->NextRow();
+        hardcopyInternalID = dbResult->GetColumnValueString(0);
+        if(hardcopyInternalID.length() > 0)
+        {
+            if(!insertRefDoc(hardcopyInternalID))
+            {
+                delete dbResult;
+                return false;
+            }
+        }
+    }
+    if(hardcopyInternalID.length() == 0)
+    {
+        raiseIgnoreDocument("IG-02","Hardcopy file not found.");
+        delete dbResult;
+        return false;
+    }
+    delete dbResult;
+    return true;
+}
+ 
+bool Translation::insertRefDoc(string linkInternalID)
+{
+    string sql = "";
+    sql.append("REPLACE INTO B2BE_DOCUMENT_ID (B2BEDocumentInternalID, B2BEDocumentIDType, DocumentID)");
+    sql.append(" VALUES ('" + b2beHdr->getInternalID() + "','REF_DOC_INTERNALID','" + YB_V2Util::databaseCleanString(linkInternalID) + "')");
+    mySQL->executeNonQuery(sql);
+    if(mySQL->isError())
+    {
+        raiseInternalError("07", "Unable to insert into B2BE_DOCUMENT_ID " + mySQL->getErrorMessage());
+        return false;
+    }
+    return true;
+}
+ 
+bool Translation::lookupCalculationLogic(string VNName, string VNGLN, bool &convertWeekInDeliveryDate, bool &mapDeliveryDateToLine, bool &calculateEarliestDate, bool &calculateLatestDate, bool &mapOrderDateToLine, bool &calculateNetPrice, bool &calculateDiscountedPrice)
+{
+    string sql = "";
+    sql.append("SELECT ConvertWeekInDeliveryDate, MapDeliveryDateToLine, CalculateEarliestDate, CalculateLatestDate, MapOrderDateToLine, CalculateNetPrice, CalculateDiscountedPrice FROM NL11337FerneyGroupCalculationLogic");
+    sql.append(" WHERE GLN = '" + YB_V2Util::databaseCleanString(VNGLN) + "'");
+ 
+    SQLResult * db_res = new SQLResult(db->executeQuery(sql));
+    if(db->isError())
+    {
+        raiseInternalError("09", "Loading NL11337FerneyGroupCalculationGroup Table Database Error: " + db->getErrorMessage());
+        delete db_res;
+        return false;
+    }
+    while(db_res->IsMoreRows())
+    {
+        db_res->NextRow();
+        if(db_res->GetColumnValueString(0) == "Y") convertWeekInDeliveryDate = true;
+        if(db_res->GetColumnValueString(1) == "Y") mapDeliveryDateToLine = true;
+        if(db_res->GetColumnValueString(2) == "Y") calculateEarliestDate = true;
+        if(db_res->GetColumnValueString(3) == "Y") calculateLatestDate = true;
+        if(db_res->GetColumnValueString(4) == "Y") mapOrderDateToLine = true;
+        if(db_res->GetColumnValueString(5) == "Y") calculateNetPrice = true;
+        if(db_res->GetColumnValueString(6) == "Y") calculateDiscountedPrice = true;
+        break;
+    }
+    delete db_res;
+    return true;
+}
+
+</script>
+<script type="text/plain" id="ex-XR">
+// Translation.cpp  (XR / POResponse -> GS1 OrderResponse insbou004)
+#include "Translation.h"
+using namespace b2be::utils;
+ 
+Translation::Translation(
+        YB_MySQL* m, string inputFile, string qID, string qStageID,
+        string action, B2BEAddressingHeader* hdr, string programName)
+{
+    b2beHdr = hdr;
+    mySQL = m;
+    inputFilename = inputFile;
+    queueID = qID;
+    queueStageID = qStageID;
+    actionType = action;
+    outFile = NULL;
+    translationName = programName;
+}
+ 
+Translation::~Translation()
+{
+    if(outFile) delete outFile;
+}
+ 
+int Translation::translate()
+{
+    try
+    {
+        outFile = new YB_FlatFile(getOutputFileName(), YB_FlatFile::YB_FlatFile_Write_Mode);
+        if(outFile->isError())
+        {
+            raiseInternalError("01",outFile->getErrorMessage());
+            return EXIT_FAILURE;
+        }
+ 
+        POResponse* docs = new POResponse();
+        xmlData->loadXML(inputFilename, docs, true);
+        if (xmlData->isError())
+        {
+            if (docs != NULL) delete docs;
+            raiseInternalError("02",xmlData->getErrorMessage());
+            return EXIT_FAILURE;
+        }
+ 
+        string head = b2beHdr->getB2BEAddressingHeader() + "\n";
+        outFile->writeString(head);
+ 
+        string *lookupDBSettings = YB_V2Util::getDBLookupSettings();
+        if(lookupDBSettings[0].length() <= 0 || lookupDBSettings[1].length() <= 0 || lookupDBSettings[3].length() <= 0)
+        {
+            raiseInternalError("03", "Lookup Error - DBLookupSettings, acquired from YB_V2Util::getDBLookupSettings(), incomplete");
+            delete [] lookupDBSettings;
+            delete docs;
+            return EXIT_FAILURE;
+        }
+ 
+        db = new YB_MySQL(lookupDBSettings[0], lookupDBSettings[1], lookupDBSettings[2], lookupDBSettings[3]);
+        if(db->isError())
+        {
+            raiseInternalError("04", "ERROR: Lookup Error - " + db->getErrorMessage());
+            delete [] lookupDBSettings;
+            delete docs;
+            return EXIT_FAILURE;
+        }
+        delete [] lookupDBSettings;
+ 
+        if(!mapFile(docs))
+        {
+            delete db;
+            delete docs;
+            return EXIT_FAILURE;
+        }
+        delete db;
+        delete docs;
+    }
+    catch(...)
+    {
+        raiseInternalError("05","Undefined exeption in translate() function");
+        return EXIT_FAILURE;
+    }
+    return EXIT_SUCCESS;
+}
+ 
+bool Translation::mapFile(POResponse *docs)
+{
+    int idx = -1;
+    Party * partyBY = NULL;
+    Party * partyVN = NULL;
+    Party * partyDP = NULL;
+    PurchaseOrderItem * item = NULL;
+    ReferenceDetail * refBY = NULL;
+    ostringstream out;
+ 
+    bool isMandatoryMissing = false;
+    int counterError = 0;
+    string emailBodyHeader = "";
+    emailBodyHeader.append("Hello, \n\n");
+    emailBodyHeader.append("The attached file  Order Number : " + docs->header->orderResponseDetail->purposeCode + " has failed due to following reasons. Please check it\n");
+ 
+    string filePth = "";
+    string dpGLN = "";
+    string supplierGLN = "";
+    string supplierGLNName = "";
+    string dpGLNName = "";
+    string senderID = "";
+    string receiverID = "";
+    string refInternalID = "";
+    string docType = b2beHdr->getDocumentType();
+ 
+    out << "<OrderResponse>" << endl;
+ 
+    string orderresponseNumber = docs->header->orderResponseDetail->purposeCode;
+    if((orderresponseNumber.length() < 1) && counterError < 101)
+    {
+        isMandatoryMissing = true;
+        counterError++;
+        emailBodyHeader.append("\n Order Response Number Field is missing.");
+    }
+    if(orderresponseNumber.length() > 0)
+        out << "    <OrderResponseNumber>" << String::BasicXmlEncode(orderresponseNumber) << "</OrderResponseNumber>" << endl;
+ 
+    string statusCode = docs->header->orderResponseDetail->typeCode;
+    if((statusCode.length() < 1) && counterError < 101)
+    {
+        isMandatoryMissing = true;
+        counterError++;
+        emailBodyHeader.append("\n Status Code Field is missing.");
+    }
+    if(statusCode.length() > 0)
+        out << "    <StatusCode>" << String::BasicXmlEncode(statusCode) << "</StatusCode>" << endl;
+ 
+    out << "    <OrderReference>" << endl;
+    string buyersOrderNumber = "";
+    idx = docs->header->referenceDetails->getReferenceDetailByQualifier(ReferenceDetail::ReferenceQualifier_BY);
+    if(idx > -1)
+    {
+        refBY = docs->header->referenceDetails->referenceDetail[idx];
+        buyersOrderNumber = refBY->number;
+    }
+    if(buyersOrderNumber.length() > 0)
+        out << "        <BuyersOrderNumber>" << String::BasicXmlEncode(buyersOrderNumber) << "</BuyersOrderNumber>" << endl;
+ 
+    string supplierOrderNumber = docs->header->purchaseOrderDetail->id;
+    if(supplierOrderNumber.length() > 0)
+        out << "        <SuppliersOrderNumber>" << String::BasicXmlEncode(supplierOrderNumber) << "</SuppliersOrderNumber>" << endl;
+    out << "    </OrderReference>" << endl;
+ 
+    out << "    <Buyer>" << endl;
+    string byGln = "";
+    idx = docs->header->partyDetails->getPartyByQualifierIndex(Party::PartyQualifier_BY);
+    if(idx > -1)
+    {
+        partyBY = docs->header->partyDetails->party[idx];
+        byGln = partyBY->company->gln;
+    }
+    idx = docs->header->partyDetails->getPartyByQualifierIndex(Party::PartyQualifier_DP);
+    if(idx > -1)
+    {
+        partyDP = docs->header->partyDetails->party[idx];
+        dpGLN = partyDP->company->gln;
+        dpGLNName = partyDP->company->name;
+    }
+    if((byGln.length() < 1) && counterError < 101)
+    {
+        isMandatoryMissing = true;
+        counterError++;
+        emailBodyHeader.append("\n Buyer GLN is missing.");
+    }
+    if(byGln.length() > 0)
+        out << "        <GLN>" << String::BasicXmlEncode(byGln) << "</GLN>" << endl;
+    out << "    </Buyer>" << endl;
+ 
+    out << "    <Supplier>" << endl;
+    idx = docs->header->partyDetails->getPartyByQualifierIndex(Party::PartyQualifier_VN);
+    if(idx > -1)
+    {
+        partyVN = docs->header->partyDetails->party[idx];
+        supplierGLN = partyVN->company->gln;
+        refInternalID = partyVN->code;
+        supplierGLNName = partyVN->company->name;
+    }
+    if(!findLocation(refInternalID,filePth))
+    {
+        return false;
+    }
+    if((supplierGLN.length() < 1) && counterError < 101)
+    {
+        isMandatoryMissing = true;
+        counterError++;
+        emailBodyHeader.append("\n Supplier GLN Field is missing.");
+    }
+    if(supplierGLN.length() > 0)
+        out << "        <GLN>" << String::BasicXmlEncode(supplierGLN) << "</GLN>" << endl;
+    out << "    </Supplier>" << endl;
+ 
+    if(!lookupSenderReceiverDetails(supplierGLN, byGln, docType, senderID, receiverID))
+    {
+        return false;
+    }
+ 
+    for(int i = 0; i <= docs->itemDetails->itemNum ; i++)
+    {
+        item = docs->itemDetails->item[i];
+        out << "    <OrderResponseLine>" << endl;
+ 
+        string lineNumber = item->lineNumber;
+        if(lineNumber.length() > 0)
+            out << "        <LineNumber>" << String::BasicXmlEncode(lineNumber) << "</LineNumber>" << endl;
+ 
+        string plannedDeliveryQuantity = item->orderedQuantity->quantity;
+        if((plannedDeliveryQuantity.length() < 1) && counterError < 101)
+        {
+            isMandatoryMissing = true;
+            counterError++;
+            emailBodyHeader.append("\n Planned Delivery Quantity Field is missing on line number : "+lineNumber+".");
+        }
+        if(plannedDeliveryQuantity.length() > 0)
+            out << "        <PlannedDeliveryQuantity>" << String::BasicXmlEncode(plannedDeliveryQuantity) << "</PlannedDeliveryQuantity>" << endl;
+ 
+        string plannedDeliveryQuantityuom = item->orderedQuantity->unit;
+        if(plannedDeliveryQuantityuom.length() > 0)
+            out << "        <PlannedDeliveryQuantityUoM>" << String::BasicXmlEncode(plannedDeliveryQuantityuom) << "</PlannedDeliveryQuantityUoM>" << endl;
+ 
+        out << "        <TradeItemIdentification>" << endl;
+        string gtinType = item->referenceCodes->ean;
+        string checkGtinLenght = item->referenceCodes->ean;
+        if(senderID == "jpmkok-nl")
+        {
+            if (checkGtinLenght.length() == 13)
+            {
+                item->referenceCodes->ean = String::PadString(checkGtinLenght,'0', 14, String::PADLEFT);
+                gtinType = item->referenceCodes->ean;
+            }
+        }
+        if(gtinType.length() > 0)
+            out << "            <GTIN>" << String::BasicXmlEncode(gtinType) << "</GTIN>" << endl;
+ 
+        string suppliersTradeItemIdentification = item->referenceCodes->supplierPartNumber;
+        if(suppliersTradeItemIdentification.length() > 0)
+            out << "            <SuppliersTradeItemId>" << String::BasicXmlEncode(suppliersTradeItemIdentification) << "</SuppliersTradeItemId>" << endl;
+        out << "        </TradeItemIdentification>" << endl;
+ 
+        string netPrice = item->price->netAmount;
+        string grossPrice = item->price->amount;
+        if(netPrice.length() > 0 || grossPrice.length() > 0)
+        {
+            out << "        <PriceInformation>" << endl;
+            if(grossPrice.length() > 0)
+                out << "            <GrossPrice>" << String::BasicXmlEncode(grossPrice) << "</GrossPrice>" << endl;
+            if(netPrice.length() > 0)
+                out << "            <NetPrice>" << String::BasicXmlEncode(netPrice) << "</NetPrice>" << endl;
+            out << "        </PriceInformation>" << endl;
+        }
+        out << "    </OrderResponseLine>" << endl;
+    }
+    out << "</OrderResponse>" << endl;
+    outFile->writeString(out.str());
+ 
+    if(isMandatoryMissing && ( counterError > 1))
+    {
+        if (!redirect(getOutputFileName(), "ferneyreject-nl", "ferneyemail-nl"))
+        {
+            raiseInternalError("14", "Fails to redirect from ferneysplit-nl to ferneyemail-nl ");
+            return false;
+        }
+        return false;
+    }
+ 
+    if(senderID.length() == 0 || receiverID.length() == 0)
+    {
+        if(!sendEmail(senderID, receiverID, buyersOrderNumber, supplierOrderNumber, filePth))
+        {
+            return false;
+        }
+        if (!redirect(getOutputFileName(), "ferneyreject-nl", "ferneyemail-nl"))
+        {
+            raiseInternalError("15", "Fails to redirect from ferneysplit-nl to ferneyemail-nl ");
+            return false;
+        }
+        return false;
+    }
+    else
+    {
+        if(docType == "OrderAck" && buyersOrderNumber.length() > 0)
+        {
+            string primaryIDPdf = b2beHdr->getPrimaryDocID() + "_pdf";
+            if (!createNewDocument(senderID, receiverID, primaryIDPdf,false,B2BEDocument::B2BEDocumentType_OrderAck,filePth))
+            {
+                raiseInternalError("22", "Fails to redirect from " + senderID + " to " + receiverID);
+                return false;
+            }
+            if (!redirect(getOutputFileName(), senderID, receiverID))
+            {
+                raiseInternalError("25", "Fails to redirect from " + senderID + " to " + receiverID);
+                return false;
+            }
+            return false;
+        }
+    }
+    return true;
+}
+ 
+bool Translation::lookupSenderReceiverDetails(string supplierGLN, string byGln, string docType, string &senderID, string &receiverID)
+{
+    string sql = "";
+    sql.append("SELECT SenderID, ReceiverID FROM NL11337FerneySenderRecCodes");
+    sql.append(" WHERE B2BEDocType = '" + YB_V2Util::databaseCleanString(docType) + "'");
+    sql.append(" AND SenderGLN = '" + YB_V2Util::databaseCleanString(supplierGLN) + "'");
+    sql.append(" AND ReceiverGLN = '" + YB_V2Util::databaseCleanString(byGln) + "'");
+    SQLResult * db_res = new SQLResult(db->executeQuery(sql));
+    if(db->isError())
+    {
+        raiseInternalError("26", "Loading NL11337FerneySenderRecCodes Table Database Error: " + db->getErrorMessage());
+        delete db_res;
+        return false;
+    }
+    while(db_res->IsMoreRows())
+    {
+        db_res->NextRow();
+        senderID = db_res->GetColumnValueString(0);
+        receiverID = db_res->GetColumnValueString(1);
+        break;
+    }
+    delete db_res;
+    return true;
+}
+ 
+bool Translation::findLocation(string refInternalID,string &filePth)
+{
+    string sql = "";
+    sql.append("SELECT B2BE_DOCUMENT_ACTION.Location FROM B2BE_DOCUMENT, B2BE_DOCUMENT_ACTION");
+    sql.append(" WHERE B2BE_DOCUMENT.B2BEDocumentInternalID = B2BE_DOCUMENT_ACTION.B2BEDocumentInternalID");
+    sql.append(" AND B2BE_DOCUMENT.SenderB2BEUserID = 'ferneyemail-nl'");
+    sql.append(" AND B2BE_DOCUMENT.B2BEDocumentType = 'Hardcopy' AND B2BE_DOCUMENT.B2BEDocumentInternalID = '" + refInternalID +"'");
+    SQLResult* db_res = new SQLResult(mySQL->executeQuery(sql));
+    if(mySQL->isError())
+    {
+        raiseInternalError("34", "Loading B2BE_DOCUMENT, B2BE_DOCUMENT_ACTION Table Database Error: " + mySQL->getErrorMessage());
+        delete db_res;
+        return false;
+    }
+    filePth = "";
+    while(db_res->IsMoreRows())
+    {
+        db_res->NextRow();
+        filePth = db_res->GetColumnValueString(0);
+        break;
+    }
+    delete db_res;
+    return true;
+}
+
+</script>
+
+<script>
+/* ===== engine ===== */
+const FIELD_CHAIN=/[A-Za-z_]\w*(?:\s*->\s*\w+)+/g;
+function norm(c){return c.replace(/\s*->\s*/g,'->').trim();}
+function parseFile(stage){
+  const lines=stage.code.split('\n');const fieldOps=[],errors=[],sql=[],functions=[];
+  const localFromChain={},tagFromLocal={};let curJson=null;
+  lines.forEach((line,i)=>{const L=i+1;
+    const fn=line.match(/\b([A-Za-z_]\w*)::([A-Za-z_]\w*)\s*\(/);
+    if(fn&&!/raiseInternal|executeQuery|executeNonQuery/.test(line))functions.push({name:fn[2],line:L});
+    const jf=line.match(/==\s*"([A-Z0-9_]+)"/);if(jf)curJson=jf[1];
+    const er=line.match(/raise(?:InternalError|IgnoreDocument)\(\s*"([^"]+)"\s*,\s*"([^"]*)"/);
+    if(er){let cond=null;for(let k=i;k>=Math.max(0,i-20);k--){const m=lines[k].match(/\bif\s*\(\s*(.+?)\s*\)\s*$/)||lines[k].match(/\bif\s*\(\s*(.+)$/);if(m){cond=m[1].replace(/\s+/g,' ').trim();break;}}errors.push({code:er[1],message:er[2],line:L,condition:cond});}
+    const fromM=line.match(/\bFROM\s+([A-Za-z_]\w*)/),intoM=line.match(/\bINTO\s+([A-Za-z_]\w*)/);
+    if(fromM)sql.push({line:L,table:fromM[1],op:'read'});if(intoM)sql.push({line:L,table:intoM[1],op:'write'});
+    const lv=line.match(/(?:string\s+)?([A-Za-z_]\w*)\s*=\s*([A-Za-z_]\w*(?:\s*->\s*\w+)+)\s*;/);
+    if(lv&&!/==|<=|>=|!=/.test(lv[0]))localFromChain[lv[1]]={chain:norm(lv[2]),line:L};
+    const tg=line.match(/out\s*<<\s*"\s*<([A-Za-z_]\w*)>"\s*<<.*?\(\s*([A-Za-z_]\w*)\s*\)/);
+    if(tg)tagFromLocal[tg[2]]={tag:tg[1],line:L};
+    (line.match(FIELD_CHAIN)||[]).forEach(rc=>{const chain=norm(rc),idx=line.indexOf(rc),after=line.slice(idx+rc.length).replace(/^\s+/,'');const isWrite=/^=(?!=)/.test(after);fieldOps.push({chain,line:L,op:isWrite?'write':'read',jsonField:isWrite?curJson:null});});
+  });
+  fieldOps.forEach(op=>{if(op.op==='read')for(const[v,info]of Object.entries(localFromChain))if(info.chain===op.chain&&tagFromLocal[v])op.outputTag=tagFromLocal[v].tag;});
+  return{fieldOps,errors,sql,functions};
+}
+
+/* ===== state ===== */
+const PALETTE=[['#6fa8d6','rgba(111,168,214,.15)'],['#d6a86f','rgba(214,168,111,.15)'],['#7fc08a','rgba(127,192,138,.15)'],['#b08fd0','rgba(176,143,208,.15)'],['#d68f86','rgba(214,143,134,.15)'],['#6fb8c0','rgba(111,184,192,.15)'],['#c08fb0','rgba(192,143,176,.15)']];
+const col=i=>PALETTE[i%PALETTE.length];
+let STAGES=loadStages()||[];
+let PARSED={};
+let PANES=[{stageId:STAGES[0]?STAGES[0].id:null,line:null}];
+let CUR_CHAIN=null;
+let nextId=Math.max(0,...STAGES.map(s=>+s.id||0))+1;
+
+function saveStages(){try{localStorage.setItem('mdrtrace.v4',JSON.stringify(STAGES));}catch(e){}}
+function loadStages(){try{const s=localStorage.getItem('mdrtrace.v4');if(s)return JSON.parse(s);}catch(e){}return null;}
+function reparse(){PARSED={};STAGES.forEach(s=>PARSED[s.id]=parseFile(s));}
+function stageIndex(id){return STAGES.findIndex(s=>s.id===id);}
+function stageById(id){return STAGES.find(s=>s.id===id);}
+function activeStage(){return PANES[0].stageId;}
+function codeLines(id){return stageById(id).code.split('\n');}
+reparse();
+
+function traceField(chain){chain=norm(chain);const trace=[];STAGES.forEach(s=>{const ops=PARSED[s.id].fieldOps.filter(o=>o.chain===chain);if(ops.length)trace.push({stage:s,ops});});return{chain,trace};}
+function allChains(){const m=new Map();STAGES.forEach(s=>PARSED[s.id].fieldOps.forEach(o=>{if(!m.has(o.chain))m.set(o.chain,new Set());m.get(o.chain).add(s.id);}));return[...m.entries()].map(([chain,set])=>({chain,stageIds:STAGES.filter(s=>set.has(s.id)).map(s=>s.id)})).sort((a,b)=>a.chain.localeCompare(b.chain));}
+function allErrors(){const out=[];STAGES.forEach(s=>PARSED[s.id].errors.forEach(e=>out.push({stage:s,...e})));return out;}
+
+/* ===== glossary ===== */
+const GLOSSARY=[
+  ['String::TakeField','Split a string by a separator and take the Nth piece (1-indexed). Used to pull year/month/day out of a date.'],
+  ['String::FixField','Fixed-width slice — substring from an offset for a set length. Often cuts parts out of YYYYMMDD.'],
+  ['String::Replace','Replace every occurrence of one string with another. The classic use is decimal comma → dot.'],
+  ['String::ToUpper','Uppercase a string. Wraps field names so matching is case-insensitive.'],
+  ['String::BasicXmlEncode','Escape characters that would break XML (& < >). Applied to values written to output XML.'],
+  ['String::Trim','Strip leading/trailing whitespace.'],
+  ['String::PadString','Pad to a fixed length — e.g. a 13-digit GTIN into 14 with a leading zero.'],
+  ['String::RemoveChars','Remove the listed characters — e.g. strip "-" from a date to test if it is empty.'],
+  ['Number::FormatDouble','Format a number to N decimal places.'],
+  ['PartyQualifier_VN','The Vendor / supplier party.'],
+  ['PartyQualifier_DP','The Delivery party — the ship-to location.'],
+  ['PartyQualifier_BY','The Buyer party.'],
+  ['ReferenceQualifier_BY','The buyer’s order reference number.'],
+  ['ReferenceQualifier_DT','The delivery-terms reference.'],
+  ['DeliveryDateQualifier_OnDate','Requested / scheduled delivery date.'],
+  ['DeliveryDateQualifier_StartDate','Earliest acceptable delivery date.'],
+  ['DeliveryDateQualifier_EndDate','Latest acceptable delivery date.'],
+  ['executeQuery','Run a SELECT against the lookup database.'],
+  ['executeNonQuery','Run an INSERT / REPLACE / UPDATE.'],
+  ['raiseInternalError','Fail the document with a coded error — it lands in the error queue.'],
+  ['raiseIgnoreDocument','Stop without an error — the document is silently ignored.'],
+  ['redirect','Move the output between B2BE queue users (e.g. to the reject / email queue).'],
+  ['createNewDocument','Spawn an additional B2BE document, e.g. a PDF attachment copy.'],
+  ['sendMail','Send a notification email — missing-field or no-relationship alerts.'],
+  ['loadXML','Read a document in from B2BE XML.'],
+  ['writeXML','Write a document back out as B2BE XML.'],
+  ['getOutputFileName','The path this translation writes its result to.'],
+  ['getInternalID','This document’s unique B2BE internal ID.'],
+];
+function glossaryHit(t){const h=[];GLOSSARY.forEach(([k,v])=>{if(t.includes(k))h.push([k,v]);});return h;}
+
+/* ===== render ===== */
+const el=id=>document.getElementById(id);
+const KW=/\b(if|else|for|while|return|true|false|new|delete|bool|int|string|void|try|catch|break|NULL)\b/g;
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function highlight(line){let h=esc(line);
+  h=h.replace(/(\/\/.*$)/,'<span class="tok-c">$1</span>');
+  h=h.replace(/("(?:[^"\\]|\\.)*")/g,'<span class="tok-s">$1</span>');
+  h=h.replace(/([A-Za-z_]\w*(?:-&gt;\w+)+)/g,'<span class="tok-field">$1</span>');
+  h=h.replace(KW,'<span class="tok-k">$1</span>');
+  h=h.replace(/\b(\d+)\b/g,'<span class="tok-n">$1</span>');return h;}
+
+function render(){
+  reparse();renderLegend();
+  if(STAGES.length===0){renderEmpty();renderTab();return;}
+  PANES=PANES.filter(p=>stageById(p.stageId));
+  if(PANES.length===0)PANES=[{stageId:STAGES[0].id,line:null}];
+  renderPanes();renderTab();
+}
+function renderLegend(){const max=6;let html='';
+  STAGES.slice(0,max).forEach((s,i)=>{const c=col(stageIndex(s.id));
+    html+=`<span class="lchip" style="color:${c[0]};background:${c[1]};border-color:${c[1]}">${esc(s.label)}</span>`;
+    if(i<Math.min(STAGES.length,max)-1)html+=`<span class="larrow">→</span>`;});
+  if(STAGES.length>max)html+=`<span class="larrow">+${STAGES.length-max}</span>`;
+  el('legend').innerHTML=html;}
+function renderEmpty(){
+  el('codeWrap').innerHTML=`<div class="empty"><div class="card">
+    <h2>Paste a translation to start</h2>
+    <p>This maps how fields flow from one translation file to the next. Add your stages by pasting them in — name each one whatever you like.</p>
+    <div class="btns"><button class="primary" onclick="openModal()">+ Add stage</button><button class="ghost" onclick="loadExample()">Load example</button></div>
+    <div class="steps"><b>1.</b>&nbsp; Paste your first translation file &amp; name it.<br><b>2.</b>&nbsp; Paste the next one (and any others).<br><b>3.</b>&nbsp; Click any field — watch it map across every stage.</div>
+  </div></div>`;}
+
+function paneHTML(p,idx){
+  const s=stageById(p.stageId);const c=col(stageIndex(s.id));const par=PARSED[s.id];
+  const errLines=new Set(par.errors.map(e=>e.line));const fieldLines=new Set(par.fieldOps.map(o=>o.line));
+  const close=idx>0?`<button class="pane-close" data-close="${idx}" title="Close split view">×</button>`:'';
+  const body=s.code.split('\n').map((ln,i)=>{const n=i+1;const cls=['ln'];
+    if(errLines.has(n))cls.push('err-line');if(fieldLines.has(n))cls.push('has-field');
+    if(p.line===n)cls.push('sel');
+    return `<div class="${cls.join(' ')}" data-line="${n}"><span class="gut">${n}</span><span class="src">${highlight(ln)||'&nbsp;'}</span></div>`;}).join('');
+  return `<div class="pane" data-pane="${idx}">
+    <div class="code-head"><span class="dot" style="background:${c[0]}"></span><b style="color:${c[0]};font-weight:700">${esc(s.label)}</b>&nbsp;·&nbsp;${s.code.split('\n').length} lines · ${par.errors.length} err${close}</div>
+    <div class="code-scroll"><div class="code">${body}</div></div></div>`;
+}
+function renderPanes(){
+  el('codeWrap').innerHTML=`<div class="panes">${PANES.map((p,i)=>paneHTML(p,i)).join('')}</div>`;
+  bindPaneEvents();
+  PANES.forEach((p,i)=>{if(p.line)scrollPaneTo(i,p.line,false);});
+}
+function paneEl(idx){return el('codeWrap').querySelector(`.pane[data-pane="${idx}"]`);}
+function markPane(idx){const pane=paneEl(idx);if(!pane)return;
+  pane.querySelectorAll('.ln.sel').forEach(x=>x.classList.remove('sel','nav'));
+  const node=pane.querySelector(`[data-line="${PANES[idx].line}"]`);if(node)node.classList.add('sel');}
+function scrollPaneTo(idx,line,nav){const pane=paneEl(idx);if(!pane)return;
+  const node=pane.querySelector(`[data-line="${line}"]`);if(node){node.scrollIntoView({block:'center',behavior:'smooth'});if(nav){node.classList.add('nav');setTimeout(()=>node.classList.remove('nav'),800);}}}
+
+function gotoLine(stageId,line,inspect){gotoPane(0,stageId,line,inspect);}
+function gotoPane(idx,stageId,line,inspect){
+  PANES[idx]={stageId:stageId||PANES[idx].stageId,line};
+  renderPanes();renderTab();
+  scrollPaneTo(idx,line,true);
+  if(inspect){const sid=PANES[idx].stageId;inspect_(codeLines(sid)[line-1],line,sid);}
+}
+function openSplit(rightStage,rightLine){
+  const leftStage=PANES[0].stageId;
+  if(leftStage===rightStage){gotoLine(rightStage,rightLine,true);return;}
+  let leftLine=PANES[0].line;
+  if(CUR_CHAIN){const occ=PARSED[leftStage].fieldOps.find(o=>o.chain===CUR_CHAIN);if(occ)leftLine=occ.line;}
+  PANES[0]={stageId:leftStage,line:leftLine};
+  PANES[1]={stageId:rightStage,line:rightLine};
+  renderPanes();renderTab();
+  scrollPaneTo(0,leftLine,true);scrollPaneTo(1,rightLine,true);
+}
+
+/* inspector */
+function chainPretty(c){return c.replace(/->/g,'<span class="arr"> → </span>');}
+function renderRail(trace){
+  const active={};trace.forEach(seg=>active[seg.stage.id]=seg.ops);
+  let html=`<div class="rail" style="grid-template-columns:repeat(${STAGES.length},1fr)"><div class="track"></div>`;
+  STAGES.forEach(s=>{const c=col(stageIndex(s.id));const ops=active[s.id];const on=!!ops;
+    let opsHtml='<div class="ops"></div>',annot='<div class="annot" style="opacity:.4">—</div>';
+    let style=on?`border-color:${c[0]};background:${c[1]};color:${c[0]}`:'';
+    if(ops){const hasW=ops.some(o=>o.op==='write'),hasR=ops.some(o=>o.op==='read');
+      opsHtml=`<div class="ops">${hasW?'<span class="op w">W</span>':''}${hasR?'<span class="op r">R</span>':''}</div>`;
+      const js=ops.find(o=>o.jsonField),tag=ops.find(o=>o.outputTag);
+      if(js)annot=`<div class="annot"><b>from</b>${esc(js.jsonField)}</div>`;
+      else if(tag)annot=`<div class="annot"><b>to XML</b>&lt;${esc(tag.outputTag)}&gt;</div>`;
+      else annot=`<div class="annot">${ops.length} op${ops.length>1?'s':''}</div>`;}
+    html+=`<div class="station ${on?'active':''}"><div class="node" style="${style}" title="${esc(s.label)}">${esc(s.label).slice(0,4)}</div>${opsHtml}${annot}</div>`;});
+  return html+'</div>';
+}
+function inspect_(text,line,stageId){
+  stageId=stageId||activeStage();
+  const insp=el('inspector');
+  const chains=[...new Set((text.match(FIELD_CHAIN)||[]).map(norm))].sort((a,b)=>b.length-a.length);
+  let html='';CUR_CHAIN=chains.length?chains[0]:null;
+  if(chains.length){
+    const chain=chains[0];const{trace}=traceField(chain);
+    const multi=trace.length>1;
+    html+=`<div class="eyebrow">Field flow across stages</div>`+renderRail(trace);
+    html+=`<div class="field-name">${chainPretty(chain)}</div>`;
+    const flat=trace.flatMap(s=>s.ops.map(o=>({...o,stage:s.stage})));
+    const js=flat.find(o=>o.jsonField),tag=[...flat].reverse().find(o=>o.outputTag);
+    const firstWrite=trace.find(s=>s.ops.some(o=>o.op==='write'));
+    const fwIdx=firstWrite?trace.indexOf(firstWrite):-1;
+    const after=trace.filter((s,i)=>fwIdx>=0&&i>fwIdx&&s.ops.some(o=>o.op==='write')).map(s=>s.stage.label);
+    let read='';
+    if(js)read+=`Enters from <b>${esc(js.jsonField)}</b> in <b>${esc(js.stage.label)}</b>. `;
+    else if(firstWrite)read+=`First set in <b>${esc(firstWrite.stage.label)}</b>. `;
+    if(after.length)read+=`Transformed in <b>${after.map(esc).join(', ')}</b>. `;
+    if(tag)read+=`Emitted as <b>&lt;${esc(tag.outputTag)}&gt;</b> in <b>${esc(tag.stage.label)}</b>.`;
+    if(!read)read=`Appears in ${trace.map(s=>esc(s.stage.label)).join(', ')}.`;
+    html+=`<div class="read">${read}</div>`;
+    html+=`<div class="eyebrow">Every occurrence ${multi?'<span class="sub">⇆ opens beside</span>':''}</div>`;
+    trace.forEach(seg=>{const seen=new Set();const c=col(stageIndex(seg.stage.id));
+      seg.ops.forEach(o=>{const k=o.line+o.op;if(seen.has(k))return;seen.add(k);
+        const extra=o.jsonField?` ← ${esc(o.jsonField)}`:o.outputTag?` → &lt;${esc(o.outputTag)}&gt;`:'';
+        html+=`<div class="occ-row"><button class="occ" data-stage="${seg.stage.id}" data-line="${o.line}"><span class="op-badge ${o.op==='write'?'w':'r'}">${o.op==='write'?'W':'R'}</span><span class="tag" style="color:${c[0]};background:${c[1]}">${esc(seg.stage.label).slice(0,5)}</span><span class="ln-ref">L${o.line}</span><span class="desc">${o.op==='write'?'Sets':'Reads'} value${extra}</span></button>${multi?`<button class="occ-split" data-stage="${seg.stage.id}" data-line="${o.line}" title="Open beside current stage">⇆</button>`:''}</div>`;});});
+  }
+  const errHere=allErrors().filter(e=>(e.line===line&&e.stage.id===stageId)||text.includes(`"${e.code}"`));
+  if(errHere.length){html+=`<div class="eyebrow">Error exit</div>`;errHere.slice(0,4).forEach(e=>{html+=`<div class="err-card"><div class="ec">[${esc(e.stage.label)}] error ${esc(e.code)}</div><p>${esc(e.message)||'(message continues in code)'}</p>${e.condition?`<div class="cond">triggers when: ${esc(e.condition)}</div>`:''}</div>`;});}
+  const helpers=glossaryHit(text);
+  if(helpers.length){html+=`<div class="eyebrow">What it uses</div>`;helpers.forEach(([k,v])=>{html+=`<div class="helper"><code>${k}</code><p>${v}</p></div>`;});}
+  if(!html){html=`<div class="insp-empty">Nothing traceable here — no field path, helper, or error code on this selection. Try a line with a <b>-&gt;</b> chain.</div>`;}
+  else{html+=`<div class="note">Derived by parsing structure — points at suspects (this field, this lookup, this condition), not a confirmed root cause. It can’t see your live document or logs.</div>`;}
+  insp.innerHTML=html;
+  insp.querySelectorAll('.occ').forEach(b=>b.onclick=()=>gotoLine(b.dataset.stage,+b.dataset.line,true));
+  insp.querySelectorAll('.occ-split').forEach(b=>b.onclick=()=>openSplit(b.dataset.stage,+b.dataset.line));
+}
+
+/* tabs */
+let curTab='pipeline';
+function renderTab(){const b=el('tabBody');
+  if(curTab==='pipeline'){
+    if(STAGES.length===0){b.innerHTML=`<div class="hint">No stages yet.</div><button class="add-row" onclick="openModal()">+ Add your first stage</button>`;return;}
+    let head=`<div class="pipe-head"><span>${STAGES.length} stage${STAGES.length>1?'s':''}</span><button onclick="clearAll()">Clear all</button></div>`;
+    b.innerHTML=head+STAGES.map((s,i)=>{const c=col(i);const p=PARSED[s.id];const tables=[...new Set(p.sql.map(x=>x.table))];
+      return `<div class="stage-item ${s.id===activeStage()?'on':''}" style="border-left-color:${c[0]}" data-stage="${s.id}">
+        <div class="top"><span class="label">${esc(s.label)}</span><span class="ord">${i+1}/${STAGES.length}</span></div>
+        <div class="meta">${s.code.split('\n').length} lines · ${p.errors.length} err · ${tables.length} table${tables.length!==1?'s':''}</div>
+        <div class="stage-acts">
+          <button data-act="up" ${i===0?'disabled':''}>▲</button>
+          <button data-act="down" ${i===STAGES.length-1?'disabled':''}>▼</button>
+          <button data-act="edit">edit</button>
+          <button data-act="del">remove</button>
+        </div></div>`;}).join('')+`<button class="add-row" onclick="openModal()">+ Add stage</button>`;
+    b.querySelectorAll('.stage-item').forEach(x=>{
+      const open=()=>{PANES[0]={stageId:x.dataset.stage,line:null};renderPanes();renderTab();};
+      x.querySelector('.top').onclick=open;x.querySelector('.meta').onclick=open;
+      x.querySelectorAll('.stage-acts button').forEach(btn=>btn.onclick=ev=>{ev.stopPropagation();stageAction(x.dataset.stage,btn.dataset.act);});});
+  }
+  else if(curTab==='errors'){const e=allErrors();
+    b.innerHTML=e.length?e.map(x=>{const c=col(stageIndex(x.stage.id));return `<button class="list-row" data-stage="${x.stage.id}" data-line="${x.line}"><span class="tag err">${esc(x.code)}</span><span class="tag" style="color:${c[0]};background:${c[1]}">${esc(x.stage.label).slice(0,5)}</span><span class="grow">${esc(x.message)||'(see line)'}</span></button>`;}).join(''):`<div class="hint">No error codes found in the pasted stages.</div>`;
+    b.querySelectorAll('.list-row').forEach(x=>x.onclick=()=>gotoLine(x.dataset.stage,+x.dataset.line,true));}
+  else if(curTab==='fields'){const items=allChains();
+    b.innerHTML=`<div class="hint">${items.length} field paths. Click to map across stages.</div>`+items.map(f=>`<button class="list-row" data-chain="${f.chain}">${f.stageIds.map(id=>{const c=col(stageIndex(id));return `<span class="tag" style="color:${c[0]};background:${c[1]}">${esc(stageById(id).label).slice(0,4)}</span>`;}).join('')}<span class="grow mono">${esc(f.chain.replace(/^docs->|^item->|^party\w+->/,''))}</span></button>`).join('');
+    b.querySelectorAll('.list-row').forEach(x=>x.onclick=()=>{const{trace}=traceField(x.dataset.chain);if(trace[0])gotoLine(trace[0].stage.id,trace[0].ops[0].line,false);inspect_(x.dataset.chain,-1,trace[0]?trace[0].stage.id:null);});}
+  else{b.innerHTML=`<div class="gl-item" style="border:none"><code>How stages work</code><p>Stages are whatever you paste — name them anything. A field that appears in more than one stage is matched by its exact <code style="background:none;padding:0">-&gt;</code> path, so the same field lights up wherever it’s touched.</p></div>`+GLOSSARY.map(([k,v])=>`<div class="gl-item"><code>${k}</code><p>${v}</p></div>`).join('');}
+}
+function stageAction(id,act){const i=stageIndex(id);
+  if(act==='up'&&i>0){[STAGES[i-1],STAGES[i]]=[STAGES[i],STAGES[i-1]];}
+  else if(act==='down'&&i<STAGES.length-1){[STAGES[i+1],STAGES[i]]=[STAGES[i],STAGES[i+1]];}
+  else if(act==='del'){if(!confirm('Remove "'+STAGES[i].label+'"?'))return;STAGES.splice(i,1);PANES=PANES.filter(p=>p.stageId!==id);}
+  else if(act==='edit'){return openModal(id);}
+  saveStages();render();}
+function clearAll(){if(!STAGES.length)return;if(!confirm('Remove all '+STAGES.length+' stages? This cannot be undone.'))return;STAGES=[];PANES=[{stageId:null,line:null}];saveStages();render();el('inspector').innerHTML='';}
+window.clearAll=clearAll;
+
+/* code events (per pane) */
+function bindPaneEvents(){
+  el('codeWrap').querySelectorAll('.pane').forEach(pane=>{const idx=+pane.dataset.pane;const sc=pane.querySelector('.code-scroll');
+    sc.addEventListener('mouseup',e=>{const sel=window.getSelection();const txt=sel&&sel.toString().trim();const sid=PANES[idx].stageId;
+      if(txt&&txt.length>1){inspect_(txt,-1,sid);return;}
+      const ln=e.target.closest('.ln');if(ln){const n=+ln.dataset.line;PANES[idx].line=n;markPane(idx);const src=codeLines(sid)[n-1];inspect_(src,n,sid);}});});
+  el('codeWrap').querySelectorAll('.pane-close').forEach(b=>b.onclick=()=>{PANES.splice(+b.dataset.close,1);renderPanes();renderTab();});
+}
+
+/* search */
+el('search').addEventListener('keydown',e=>{if(e.key!=='Enter')return;const q=e.target.value.trim();if(!q)return;
+  const err=allErrors().find(x=>x.code.toLowerCase()===q.toLowerCase());
+  if(err){switchTab('errors');gotoLine(err.stage.id,err.line,true);return;}
+  const f=allChains().find(x=>x.chain.toLowerCase().includes(q.toLowerCase()));
+  if(f){const{trace}=traceField(f.chain);if(trace[0])gotoLine(trace[0].stage.id,trace[0].ops[0].line,false);inspect_(f.chain,-1,trace[0]?trace[0].stage.id:null);}});
+function switchTab(t){curTab=t;document.querySelectorAll('.tabs button').forEach(x=>x.classList.toggle('on',x.dataset.tab===t));renderTab();}
+document.querySelectorAll('.tabs button').forEach(t=>t.onclick=()=>switchTab(t.dataset.tab));
+
+/* modal */
+let editingId=null;
+function openModal(id){editingId=id||null;const s=id?stageById(id):null;
+  el('modalTitle').textContent=s?'Edit stage':'Add a stage';
+  el('stageLabel').value=s?s.label:'';el('stageCode').value=s?s.code:'';el('modalLeft').textContent='';
+  el('modalBg').classList.add('on');setTimeout(()=>el(s?'stageCode':'stageLabel').focus(),30);}
+window.openModal=openModal;
+el('addBtn').onclick=()=>openModal();
+el('modalCancel').onclick=()=>el('modalBg').classList.remove('on');
+el('modalBg').addEventListener('mousedown',e=>{if(e.target===el('modalBg'))el('modalBg').classList.remove('on');});
+el('nameChips').querySelectorAll('button').forEach(b=>b.onclick=()=>{el('stageLabel').value=b.dataset.n;el('stageCode').focus();});
+el('stageCode').addEventListener('input',()=>{const n=el('stageCode').value.split('\n').length;el('modalLeft').textContent=el('stageCode').value.trim()?n+' lines':'';});
+el('stageCode').addEventListener('keydown',e=>{if(e.key==='Tab'){e.preventDefault();const t=e.target,s=t.selectionStart;t.value=t.value.slice(0,s)+'    '+t.value.slice(t.selectionEnd);t.selectionStart=t.selectionEnd=s+4;}});
+el('modalSave').onclick=()=>{const code=el('stageCode').value;if(!code.trim()){el('stageCode').focus();return;}
+  let label=el('stageLabel').value.trim()||('Stage '+(STAGES.length+1));
+  if(editingId){const s=stageById(editingId);s.label=label;s.code=code;}
+  else{const id=String(nextId++);STAGES.push({id,label,code});PANES[0]={stageId:id,line:null};}
+  editingId=null;saveStages();el('modalBg').classList.remove('on');render();};
+
+/* example */
+function loadExample(){[['SX',readEx('SX')],['CT',readEx('CT')],['XR',readEx('XR')]].forEach(([label,code])=>{if(code)STAGES.push({id:String(nextId++),label,code});});PANES=[{stageId:STAGES[0].id,line:null}];saveStages();render();switchTab('pipeline');}
+window.loadExample=loadExample;
+function readEx(id){const n=document.getElementById('ex-'+id);return n?n.textContent.replace(/^\n/,''):'';}
+
+/* boot */
+el('inspEmpty').innerHTML=`Click any code line with a dotted <b>field path</b> to map it across your stages. The line stays highlighted, and you can tap <b>⇆</b> on any occurrence to open that stage <b>beside</b> the current one — no clicking back and forth.`;
+render();
+</script>
+</body>
+</html>
